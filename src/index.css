@@ -1,0 +1,18 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: 'Inter', system-ui, sans-serif;
+  --color-primary: #eab308;
+  --color-primary-dark: #ca8a04;
+  --color-dark: #121212;
+}
+
+@layer base {
+  body {
+    background-color: #0d0d0d;
+    background-image: none;
+    color: #f3f4f6;
+    min-height: 100vh;
+    font-family: 'Inter', sans-serif;
+  }
+}
