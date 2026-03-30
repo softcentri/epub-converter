@@ -96,6 +96,19 @@ export async function processFileToEpub(file: File, splitSelector: string = 'h1'
     contentHtml: string;
   }
   
+  const escapeXml = (unsafe: string) => {
+    return unsafe.replace(/[<>&'"]/g, c => {
+      switch (c) {
+        case '<': return '&lt;';
+        case '>': return '&gt;';
+        case '&': return '&amp;';
+        case '\'': return '&apos;';
+        case '"': return '&quot;';
+        default: return c;
+      }
+    });
+  };
+
   const chapters: Chapter[] = [];
   let splitElements: Element[] = [];
   
@@ -187,19 +200,19 @@ export async function processFileToEpub(file: File, splitSelector: string = 'h1'
 
   // OEBPS/content.opf
   let manifestItems = `<item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>\n    <item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>`;
-  let spineItems = ``;
+  let spineItems = `\n    <itemref idref="nav"/>`;
   let navOlItems = ``;
   
   chapters.forEach((chapter) => {
     manifestItems += `\n    <item id="${chapter.id}" href="${chapter.id}.xhtml" media-type="application/xhtml+xml"/>`;
     spineItems += `\n    <itemref idref="${chapter.id}"/>`;
-    navOlItems += `\n        <li><a href="${chapter.id}.xhtml">${chapter.title}</a></li>`;
+    navOlItems += `\n        <li><a href="${chapter.id}.xhtml">${escapeXml(chapter.title)}</a></li>`;
   });
 
   const contentOpf = `<?xml version="1.0" encoding="UTF-8"?>
 <package xmlns="http://www.idpf.org/2007/opf" unique-identifier="BookId" version="3.0">
   <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
-    <dc:title>${title}</dc:title>
+    <dc:title>${escapeXml(title)}</dc:title>
     <dc:language>en</dc:language>
     <dc:identifier id="BookId">urn:uuid:${bookId}</dc:identifier>
   </metadata>
@@ -235,7 +248,7 @@ export async function processFileToEpub(file: File, splitSelector: string = 'h1'
     navPoints += `
     <navPoint id="navPoint-${index + 1}" playOrder="${index + 1}">
       <navLabel>
-        <text>${chapter.title}</text>
+        <text>${escapeXml(chapter.title)}</text>
       </navLabel>
       <content src="${chapter.id}.xhtml"/>
     </navPoint>`;
@@ -250,7 +263,7 @@ export async function processFileToEpub(file: File, splitSelector: string = 'h1'
     <meta name="dtb:maxPageNumber" content="0"/>
   </head>
   <docTitle>
-    <text>${title}</text>
+    <text>${escapeXml(title)}</text>
   </docTitle>
   <navMap>
     ${navPoints}
