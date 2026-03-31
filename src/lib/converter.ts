@@ -112,10 +112,21 @@ export async function processFileToEpub(file: File, splitSelector: string = 'h1'
   const chapters: Chapter[] = [];
   let splitElements: Element[] = [];
   
+  const isTocHeadingText = (text: string) => /^(table of contents|contents|toc|สารบัญ)$/i.test(text);
+
   try {
-    if (splitSelector) {
-      splitElements = Array.from(doc.querySelectorAll(splitSelector));
-    }
+    const targetSelector = splitSelector || 'h1';
+    splitElements = Array.from(doc.querySelectorAll('*')).filter(el => {
+      // Catch elements that match the selector
+      if (el.matches(targetSelector)) return true;
+      
+      // Also catch explicit TOC headers so they are split out properly
+      const text = el.textContent?.trim() || '';
+      if (isTocHeadingText(text) && el.tagName.match(/^H[1-6]$|^P$|^DIV$/i)) {
+        return true;
+      }
+      return false;
+    });
   } catch (e) {
     // Fallback if selector is invalid
     splitElements = Array.from(doc.querySelectorAll('h1'));
@@ -123,6 +134,9 @@ export async function processFileToEpub(file: File, splitSelector: string = 'h1'
 
   // Filter out elements that are just TOC links to avoid false positives
   splitElements = splitElements.filter(el => {
+    const text = el.textContent?.trim() || '';
+    if (isTocHeadingText(text)) return true; // ALWAYS keep the TOC header!
+
     if (el.closest('nav')) return false;
     const className = (el.getAttribute('class') || '').toLowerCase();
     if (className.includes('toc')) return false; // TOC entries
@@ -198,15 +212,33 @@ export async function processFileToEpub(file: File, splitSelector: string = 'h1'
   const title = file.name.replace(/\.(docx?|epub)$/i, '') + (isEpub ? ' (Fixed)' : '');
   const bookId = crypto.randomUUID();
 
-  // OEBPS/content.opf
   let manifestItems = `<item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>\n    <item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>`;
-  let spineItems = `\n    <itemref idref="nav"/>`;
+  let spineItems = ``;
   let navOlItems = ``;
   
-  chapters.forEach((chapter) => {
-    manifestItems += `\n    <item id="${chapter.id}" href="${chapter.id}.xhtml" media-type="application/xhtml+xml"/>`;
-    spineItems += `\n    <itemref idref="${chapter.id}"/>`;
-    navOlItems += `\n        <li><a href="${chapter.id}.xhtml">${escapeXml(chapter.title)}</a></li>`;
+  // Find the original TOC chapter to replace it
+  const isTocRegex = /^(table of contents|contents|toc|สารบัญ)$/i;
+  let tocChapterIndex = chapters.findIndex(c => isTocRegex.test(c.title.trim()));
+  
+  if (tocChapterIndex === -1) {
+    tocChapterIndex = chapters.findIndex(c => {
+      const lowerTitle = c.title.toLowerCase();
+      if (lowerTitle.includes('สารบัญ') || lowerTitle.includes('table of content')) return true;
+      const tocMatch = c.contentHtml.match(/href="#_Toc/g);
+      if (tocMatch && tocMatch.length > 2) return true;
+      return false;
+    });
+  }
+
+  chapters.forEach((chapter, index) => {
+    if (index === tocChapterIndex) {
+      // Replace the old TOC chapter with the new nav document in the spine
+      spineItems += `\n    <itemref idref="nav"/>`;
+    } else {
+      manifestItems += `\n    <item id="${chapter.id}" href="${chapter.id}.xhtml" media-type="application/xhtml+xml"/>`;
+      spineItems += `\n    <itemref idref="${chapter.id}"/>`;
+      navOlItems += `\n        <li><a href="${chapter.id}.xhtml">${escapeXml(chapter.title)}</a></li>`;
+    }
   });
 
   const contentOpf = `<?xml version="1.0" encoding="UTF-8"?>
@@ -244,14 +276,17 @@ export async function processFileToEpub(file: File, splitSelector: string = 'h1'
 
   // OEBPS/toc.ncx
   let navPoints = ``;
+  let playOrder = 1;
   chapters.forEach((chapter, index) => {
+    if (index === tocChapterIndex) return;
     navPoints += `
-    <navPoint id="navPoint-${index + 1}" playOrder="${index + 1}">
+    <navPoint id="navPoint-${playOrder}" playOrder="${playOrder}">
       <navLabel>
         <text>${escapeXml(chapter.title)}</text>
       </navLabel>
       <content src="${chapter.id}.xhtml"/>
     </navPoint>`;
+    playOrder++;
   });
 
   const tocNcx = `<?xml version="1.0" encoding="UTF-8"?>
@@ -272,11 +307,12 @@ export async function processFileToEpub(file: File, splitSelector: string = 'h1'
   zip.file("OEBPS/toc.ncx", tocNcx);
 
   // Add all chapter files
-  chapters.forEach((chapter) => {
+  chapters.forEach((chapter, index) => {
+    if (index === tocChapterIndex) return; // Skip generating old TOC file
     const xhtmlContent = `<?xml version="1.0" encoding="UTF-8"?>
 <html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">
 <head>
-  <title>${chapter.title}</title>
+  <title>${escapeXml(chapter.title)}</title>
   <meta charset="utf-8"/>
   <style>
     body { font-family: sans-serif; line-height: 1.6; padding: 1em; }
