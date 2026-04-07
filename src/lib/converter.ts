@@ -230,6 +230,11 @@ export async function processFileToEpub(file: File, splitSelector: string = 'h1'
     });
   }
 
+  const shouldExcludeFromToc = (title: string) => {
+    const lowerTitle = title.toLowerCase();
+    return lowerTitle === 'frontmatter' || lowerTitle.includes('copyright') || lowerTitle.includes('ลิขสิทธิ์');
+  };
+
   chapters.forEach((chapter, index) => {
     if (index === tocChapterIndex) {
       // Replace the old TOC chapter with the new nav document in the spine
@@ -237,7 +242,9 @@ export async function processFileToEpub(file: File, splitSelector: string = 'h1'
     } else {
       manifestItems += `\n    <item id="${chapter.id}" href="${chapter.id}.xhtml" media-type="application/xhtml+xml"/>`;
       spineItems += `\n    <itemref idref="${chapter.id}"/>`;
-      navOlItems += `\n        <li><a href="${chapter.id}.xhtml">${escapeXml(chapter.title)}</a></li>`;
+      if (!shouldExcludeFromToc(chapter.title)) {
+        navOlItems += `\n        <li><a href="${chapter.id}.xhtml">${escapeXml(chapter.title)}</a></li>`;
+      }
     }
   });
 
@@ -278,7 +285,7 @@ export async function processFileToEpub(file: File, splitSelector: string = 'h1'
   let navPoints = ``;
   let playOrder = 1;
   chapters.forEach((chapter, index) => {
-    if (index === tocChapterIndex) return;
+    if (index === tocChapterIndex || shouldExcludeFromToc(chapter.title)) return;
     navPoints += `
     <navPoint id="navPoint-${playOrder}" playOrder="${playOrder}">
       <navLabel>
@@ -309,6 +316,10 @@ export async function processFileToEpub(file: File, splitSelector: string = 'h1'
   // Add all chapter files
   chapters.forEach((chapter, index) => {
     if (index === tocChapterIndex) return; // Skip generating old TOC file
+    
+    // Determine if this is the inner cover (frontmatter)
+    const isFrontmatter = chapter.title === "Frontmatter" || chapter.id === "chapter-0" || (index === 0 && !chapter.title.toLowerCase().includes("chapter") && !chapter.title.toLowerCase().includes("บทที่"));
+
     const xhtmlContent = `<?xml version="1.0" encoding="UTF-8"?>
 <html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">
 <head>
@@ -318,6 +329,17 @@ export async function processFileToEpub(file: File, splitSelector: string = 'h1'
     body { font-family: sans-serif; line-height: 1.6; padding: 1em; }
     h1, h2, h3 { color: #333; }
     img { max-width: 100%; height: auto; }
+    ${isFrontmatter ? `
+    /* Inner Cover / Frontmatter Specific Styling */
+    body { 
+      text-align: center; 
+      margin-top: 10vh;
+    }
+    p { font-size: 1.4em; margin: 0.5em 0; }
+    p strong { font-size: 1.5em; }
+    h1 { font-size: 2.5em; margin-bottom: 0.5em; }
+    h2 { font-size: 1.8em; margin-bottom: 0.5em; }
+    ` : ''}
   </style>
 </head>
 <body>
